@@ -133,14 +133,15 @@ textarea.csv{width:100%;height:120px;margin-top:10px;border-radius:12px;border:1
 .fab svg{width:26px;height:26px}
 
 /* sheets */
-.mask{position:fixed;inset:0;background:#0d0b0966;z-index:40;opacity:0;pointer-events:none;transition:opacity .25s}
+.mask{position:fixed;inset:0;touch-action:none;background:#0d0b0966;z-index:40;opacity:0;pointer-events:none;transition:opacity .25s}
 .mask.show{opacity:1;pointer-events:auto}
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:42;transform:translateY(105%);transition:transform .32s cubic-bezier(.2,.9,.3,1)}
 .sheet.show{transform:none}
 #sheet{z-index:44}
-.sheet .in{max-width:520px;margin:0 auto;background:var(--card);border-radius:28px 28px 0 0;padding:10px 16px calc(var(--safe-b) + 14px);max-height:92vh;overflow-y:auto}
+.sheet .in{max-width:520px;margin:0 auto;background:var(--card);border-radius:28px 28px 0 0;padding:10px 16px calc(var(--safe-b) + 14px);max-height:92vh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 #panel .in{height:88vh;display:flex;flex-direction:column}
-#pBody{flex:1;overflow-y:auto;margin:0 -16px;padding:0 16px 10px}
+#pBody{flex:1;overflow-y:auto;overscroll-behavior:contain;margin:0 -16px;padding:0 16px 10px}
+.sh-top,.grab,.cal-h{touch-action:none}
 .grab{width:40px;height:5px;border-radius:5px;background:var(--line);margin:0 auto 10px}
 .sh-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px}
 .sh-top b{font-size:17px}
@@ -389,7 +390,7 @@ const THEMES = {
   grape: {name:"葡萄",hero:"#5B4A8B",heroD:"#433668",fab:"#7A5FC0"}
 };
 const WEEK = ["日","一","二","三","四","五","六"];
-const APP_VERSION = "2026.11.08e";
+const APP_VERSION = "2026.11.08f";
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -699,7 +700,25 @@ $("modeSeg").addEventListener("click",e=>{ const b=e.target.closest("button"); i
 $("swatches").addEventListener("click",e=>{ const b=e.target.closest(".sw"); if(!b) return; theme.color=b.dataset.c; lsSet(TK,theme); applyTheme(); renderSet(); });
 
 /* ---------- overlay stack ---------- */
-function updMask(){ $("mask").classList.toggle("show",["sheet","cal","panel"].some(id=>$(id).classList.contains("show"))); }
+/* 開啟面板時鎖住背後頁面，避免 iPhone 上手指滑動時後面跟著捲動 */
+let lockY=null;
+function lockBody(on){
+  const b=document.body;
+  if(on && lockY===null){
+    lockY=window.scrollY||0;
+    b.style.position="fixed"; b.style.top=(-lockY)+"px"; b.style.left="0"; b.style.right="0"; b.style.width="100%";
+    document.documentElement.style.overflow="hidden";
+  } else if(!on && lockY!==null){
+    b.style.position=""; b.style.top=""; b.style.left=""; b.style.right=""; b.style.width="";
+    document.documentElement.style.overflow="";
+    window.scrollTo(0,lockY); lockY=null;
+  }
+}
+function updMask(){
+  const any=["sheet","cal","panel"].some(id=>$(id).classList.contains("show"));
+  $("mask").classList.toggle("show",any);
+  lockBody(any);
+}
 function show(id){ $(id).classList.add("show"); updMask(); }
 function hide(id){ $(id).classList.remove("show"); updMask(); }
 $("mask").onclick=()=>{ if($("sheet").classList.contains("show")) closeSheet(); else if($("cal").classList.contains("show")) hide("cal"); else closePanel(); };

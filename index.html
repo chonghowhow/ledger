@@ -9,8 +9,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#F6F1E9" id="metaTheme">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icon-192.png">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192-v2.png">
+<link rel="apple-touch-icon" href="apple-touch-icon-v2.png">
 <title>小帳本</title>
 <style>
 :root{
@@ -295,6 +295,18 @@ textarea.csv{width:100%;height:120px;margin-top:10px;border-radius:12px;border:1
         <div><div class="lb">匯入本機資料</div><div class="hint" id="importHint"></div></div>
         <button class="btn dark" id="importBtn">匯入</button>
       </div>
+      <div class="rowi">
+        <div><div class="lb">搬家：複製全部資料</div><div class="hint">換圖示或換手機時用，複製後到新的 App 貼上</div></div>
+        <button class="btn dark" id="cpBtn">複製</button>
+      </div>
+      <div class="rowi">
+        <div><div class="lb">搬家：貼上還原</div><div class="hint">把複製的資料貼回來，分類、固定收支都會一起還原</div></div>
+        <button class="btn" id="psBtn">貼上</button>
+      </div>
+      <div id="psBox" class="hide" style="padding:4px 0 12px">
+        <textarea class="csv" id="psText" placeholder="長按這裡 → 貼上" style="height:90px;display:block"></textarea>
+        <button class="btn dark wide" id="psGo" style="margin-top:8px">還原</button>
+      </div>
       <div class="rowi" id="bakRow">
         <div><div class="lb">備份資料</div><div class="hint">換手機或清除瀏覽器前一定要做</div></div>
         <button class="btn dark" id="bakBtn">下載</button>
@@ -390,7 +402,7 @@ const THEMES = {
   grape: {name:"葡萄",hero:"#5B4A8B",heroD:"#433668",fab:"#7A5FC0"}
 };
 const WEEK = ["日","一","二","三","四","五","六"];
-const APP_VERSION = "2026.11.08f";
+const APP_VERSION = "2026.11.09";
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -1165,16 +1177,23 @@ $("bakBtn").onclick=()=>{
   toast("備份檔已下載");
 };
 $("restBtn").onclick=()=>$("restIn").click();
-$("restIn").onchange=async e=>{
-  const f=e.target.files[0]; e.target.value=""; if(!f) return;
-  try{
-    const d=JSON.parse(await f.text());
-    const list=Array.isArray(d)?d:d.records;
-    if(!Array.isArray(list)) throw 0;
-    const have=new Set(records.map(r=>r.id)); let n=0;
-    const clean=list.filter(r=>r&&r.id&&r.date&&+r.amount>0&&(r.type==="income"||r.type==="expense")).map(r=>({id:String(r.id),type:r.type,amount:+r.amount,cat:String(r.cat||"other"),date:String(r.date),note:String(r.note||""),ts:+r.ts||0,rec:r.rec||null}));
-    const bs=d.settings?normSettings(d.settings):null;
-    if(bs){
+function parseBackup(text){
+  text=String(text||"").trim();
+  const i=text.indexOf("{"), j=text.indexOf("[");
+  const st=(i<0)?j:(j<0?i:Math.min(i,j));
+  if(st<0) throw 0;
+  return JSON.parse(text.slice(st));
+}
+async function restoreData(d){
+  const list=Array.isArray(d)?d:d.records;
+  if(!Array.isArray(list)) throw 0;
+  const fresh = !records.length && !settings.cats && !settings.recurring.length && !settings.budget;
+  const have=new Set(records.map(r=>r.id)); let n=0;
+  const clean=list.filter(r=>r&&r.id&&r.date&&+r.amount>0&&(r.type==="income"||r.type==="expense")).map(r=>({id:String(r.id),type:r.type,amount:+r.amount,cat:String(r.cat||"other"),date:String(r.date),note:String(r.note||""),ts:+r.ts||0,rec:r.rec||null}));
+  const bs=d.settings?normSettings(d.settings):null;
+  if(bs){
+    if(fresh){ settings=bs; }
+    else{
       if(bs.cats){
         const L=ensureCats();
         ["expense","income"].forEach(t=>bs.cats[t].forEach(c=>{ if(!L[t].some(x=>x.id===c.id)) L[t].push(c); }));
@@ -1182,16 +1201,44 @@ $("restIn").onchange=async e=>{
       bs.recurring.forEach(r=>{ if(!settings.recurring.some(x=>x.id===r.id)) settings.recurring.push(r); });
       if(!settings.budget && bs.budget) settings.budget=bs.budget;
     }
-    if(store.mode==="local"){
-      clean.forEach(r=>{ if(!have.has(r.id)) n++; const i=records.findIndex(x=>x.id===r.id); if(i>=0) records[i]=r; else records.push(r); });
-      lsSet(LK,records);
-    } else {
-      for(const r of clean){ if(!have.has(r.id)){ await store.save(r); n++; } }
-    }
-    await store.saveSettings();
-    renderAll(); toast("還原完成，新增 "+n+" 筆");
-  }catch(err){ if(err&&err.code) writeErr(err); else toast("這不是有效的備份檔"); }
+  }
+  if(fresh && d.theme && THEMES[d.theme.color]){ theme={mode:d.theme.mode||"auto",color:d.theme.color}; lsSet(TK,theme); applyTheme(); }
+  if(store.mode==="local"){
+    clean.forEach(r=>{ if(!have.has(r.id)) n++; const i=records.findIndex(x=>x.id===r.id); if(i>=0) records[i]=r; else records.push(r); });
+    lsSet(LK,records);
+  } else {
+    for(const r of clean){ if(!have.has(r.id)){ await store.save(r); n++; } }
+  }
+  await store.saveSettings();
+  renderAll();
+  return n;
+}
+$("restIn").onchange=async e=>{
+  const f=e.target.files[0]; e.target.value=""; if(!f) return;
+  try{ const n=await restoreData(parseBackup(await f.text())); toast("還原完成，新增 "+n+" 筆"); }
+  catch(err){ if(err&&err.code) writeErr(err); else toast("這不是有效的備份檔"); }
 };
+/* 搬家：剪貼簿複製／貼上 */
+$("cpBtn").onclick=async()=>{
+  const text=JSON.stringify({app:"xiaozhangben",v:2,exported:new Date().toISOString(),settings,theme,records});
+  try{ await navigator.clipboard.writeText(text); toast("✅ 已複製 "+records.length+" 筆，到新的 App 按「貼上」"); }
+  catch(e){
+    const box=$("psBox"), ta=$("psText"); box.classList.remove("hide"); $("psGo").classList.add("hide");
+    ta.value=text; ta.focus(); ta.select(); toast("請長按文字框 → 全選 → 拷貝");
+  }
+};
+async function doPaste(text){
+  try{ const n=await restoreData(parseBackup(text)); $("psBox").classList.add("hide"); $("psText").value=""; toast("✅ 還原完成，共新增 "+n+" 筆"); }
+  catch(err){ if(err&&err.code) writeErr(err); else toast("貼上的內容不是小帳本的資料"); }
+}
+$("psBtn").onclick=async()=>{
+  let text="";
+  try{ text=await navigator.clipboard.readText(); }catch(e){ text=""; }
+  if(text && /xiaozhangben|"records"/.test(text)){ await doPaste(text); return; }
+  const box=$("psBox"); box.classList.remove("hide"); $("psGo").classList.remove("hide"); $("psText").value=""; $("psText").focus();
+  toast("請在文字框長按 → 貼上，再按「還原」");
+};
+$("psGo").onclick=()=>doPaste($("psText").value);
 $("importBtn").onclick=async()=>{
   const lr=lsGet(LK,[]); if(!lr.length) return;
   const have=new Set(records.map(r=>r.id));

@@ -160,6 +160,11 @@ textarea.csv{width:100%;height:120px;margin-top:10px;border-radius:12px;border:1
 .fld{width:100%;padding:11px 12px;border-radius:14px;border:1px solid var(--line);background:var(--bg);font-size:15px}
 .meta .fld{flex:1;min-width:0}
 .meta input[type=date]{flex:none;width:142px}
+.qn{display:flex;gap:6px;overflow-x:auto;margin:-2px -16px 10px;padding:0 16px;scrollbar-width:none}
+.qn::-webkit-scrollbar{display:none}
+.qn button{flex:none;padding:7px 12px;border-radius:999px;background:var(--chip);font-size:13px;color:var(--ink);white-space:nowrap;max-width:60vw;overflow:hidden;text-overflow:ellipsis}
+.qn button:active{background:var(--line)}
+.qn button.cur{outline:1.5px solid var(--ink)}
 .keys{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .k{height:54px;border-radius:16px;background:var(--bg);font-size:22px;font-family:ui-monospace,Menlo,monospace;font-weight:500}
 .k:active{background:var(--chip)}
@@ -332,6 +337,7 @@ textarea.csv{width:100%;height:120px;margin-top:10px;border-radius:12px;border:1
     <input type="text" class="fld" id="noteIn" placeholder="備註（選填）" maxlength="60">
     <input type="date" class="fld" id="dateIn">
   </div>
+  <div class="qn" id="qn"></div>
   <div class="keys" id="keys"></div>
   <div class="delrow hide" id="delRow"><button id="delBtn">刪除這筆紀錄</button></div>
 </div></div>
@@ -381,7 +387,7 @@ const THEMES = {
   grape: {name:"葡萄",hero:"#5B4A8B",heroD:"#433668",fab:"#7A5FC0"}
 };
 const WEEK = ["日","一","二","三","四","五","六"];
-const APP_VERSION = "2026.11.08b";
+const APP_VERSION = "2026.11.08c";
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -715,8 +721,34 @@ function catGrid(type,sel){
 function paintSheet(){
   [...$("tySeg").children].forEach(x=>x.classList.toggle("on",x.dataset.t===ed.type));
   $("cats").innerHTML=catGrid(ed.type,ed.cat);
-  paintAmt(); paintKeys();
+  paintAmt(); paintKeys(); paintNotes();
 }
+/* 常用備註：依使用次數＋最近使用排序，同分類優先 */
+function noteSuggest(){
+  if(!ed) return [];
+  const q=$("noteIn").value.trim().toLowerCase();
+  const sc={};
+  const list=[...records].sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts).slice(0,800);
+  list.forEach((r,i)=>{
+    const n=(r.note||"").trim(); if(!n || r.type!==ed.type) return;
+    const o=sc[n]||(sc[n]={n,s:0});
+    o.s += (r.cat===ed.cat?3:1) * (1 + 1/(1+i/40));
+  });
+  return Object.values(sc)
+    .filter(o=>!q || (o.n.toLowerCase().includes(q) && o.n.toLowerCase()!==q))
+    .sort((a,b)=>b.s-a.s).slice(0,10).map(o=>o.n);
+}
+function paintNotes(){
+  const L=noteSuggest(), box=$("qn");
+  box.innerHTML=L.map(n=>'<button type="button" data-n="'+esc(n)+'">'+esc(n)+'</button>').join("");
+  box.classList.toggle("hide",!L.length);
+  box.scrollLeft=0;
+}
+$("qn").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b||!ed) return;
+  $("noteIn").value=b.dataset.n; paintNotes();
+});
+$("noteIn").addEventListener("input",paintNotes);
 function evalExpr(s){ if(!s) return 0; return s.split(/(?=[+\-])/).reduce((a,p)=>{ const v=parseFloat(p); return a+(isNaN(v)?0:v); },0); }
 function paintAmt(){
   const s=ed.expr;
@@ -747,7 +779,7 @@ function press(k){
   ed.expr=s; paintAmt();
 }
 $("keys").addEventListener("click",e=>{ const b=e.target.closest(".k"); if(b) press(b.dataset.k); });
-$("cats").addEventListener("click",e=>{ const b=e.target.closest(".cat"); if(!b) return; ed.cat=b.dataset.c; [...$("cats").children].forEach(x=>x.classList.toggle("on",x===b)); });
+$("cats").addEventListener("click",e=>{ const b=e.target.closest(".cat"); if(!b) return; ed.cat=b.dataset.c; [...$("cats").children].forEach(x=>x.classList.toggle("on",x===b)); paintNotes(); });
 $("tySeg").addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b||b.dataset.t===ed.type) return; ed.type=b.dataset.t; const f=visCats(ed.type)[0]; ed.cat=f?f.id:"other"; paintSheet(); });
 $("fab").onclick=()=>openSheet(null);
 $("shClose").onclick=closeSheet;

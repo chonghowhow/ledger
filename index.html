@@ -165,11 +165,13 @@ textarea.csv{width:100%;height:120px;margin-top:10px;border-radius:12px;border:1
 .qn button{flex:none;padding:7px 12px;border-radius:999px;background:var(--chip);font-size:13px;color:var(--ink);white-space:nowrap;max-width:60vw;overflow:hidden;text-overflow:ellipsis}
 .qn button:active{background:var(--line)}
 .qn button.cur{outline:1.5px solid var(--ink)}
-.keys{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.k{height:54px;border-radius:16px;background:var(--bg);font-size:22px;font-family:ui-monospace,Menlo,monospace;font-weight:500}
+.keys{display:grid;grid-template-columns:repeat(5,1fr);gap:7px}
+.k{height:52px;border-radius:15px;background:var(--bg);font-size:22px;font-family:ui-monospace,Menlo,monospace;font-weight:500}
 .k:active{background:var(--chip)}
 .k.op{color:var(--ink2);background:var(--chip)}
-.k.ok{color:#fff;font-family:inherit;font-size:17px;font-weight:700;grid-row:span 2;height:auto;background:var(--exp)}
+.k.fn{color:var(--ink2);background:var(--chip);font-size:19px}
+.k.eq{color:var(--ink);background:var(--chip);font-weight:700}
+.k.ok{color:#fff;font-family:inherit;font-size:16px;font-weight:700;grid-row:span 2;height:auto;background:var(--exp)}
 .k.ok.inc{background:var(--inc)}
 .delrow{margin-top:10px;text-align:center}
 .delrow button{font-size:13px;color:var(--exp);padding:8px 14px;border-radius:12px}
@@ -387,7 +389,7 @@ const THEMES = {
   grape: {name:"葡萄",hero:"#5B4A8B",heroD:"#433668",fab:"#7A5FC0"}
 };
 const WEEK = ["日","一","二","三","四","五","六"];
-const APP_VERSION = "2026.11.08d";
+const APP_VERSION = "2026.11.08e";
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -749,25 +751,54 @@ $("qn").addEventListener("click",e=>{
   $("noteIn").value=b.dataset.n; paintNotes();
 });
 $("noteIn").addEventListener("input",paintNotes);
-function evalExpr(s){ if(!s) return 0; return s.split(/(?=[+\-])/).reduce((a,p)=>{ const v=parseFloat(p); return a+(isNaN(v)?0:v); },0); }
+/* 計算機：支援 + − × ÷，先乘除後加減 */
+const OPS=/[+\-*/]/;
+function evalExpr(s){
+  const t=(s||"").match(/\d+\.?\d*|\.\d+|[+\-*/]/g)||[];
+  while(t.length && OPS.test(t[t.length-1])) t.pop();
+  if(!t.length) return 0;
+  const terms=[parseFloat(t[0])], ops=[];
+  for(let i=1;i<t.length;i+=2){
+    const op=t[i], v=parseFloat(t[i+1]);
+    if(op==="*") terms[terms.length-1]*=v;
+    else if(op==="/") terms[terms.length-1] = v===0 ? NaN : terms[terms.length-1]/v;
+    else { ops.push(op); terms.push(v); }
+  }
+  let r=terms[0];
+  ops.forEach((op,j)=>{ r = op==="+" ? r+terms[j+1] : r-terms[j+1]; });
+  return r;
+}
+const showExpr = s => s.replace(/\*/g,"×").replace(/\//g,"÷").replace(/-/g,"−");
 function paintAmt(){
   const s=ed.expr;
-  $("amtV").textContent = s ? s.replace(/-/g,"−") : "0";
+  $("amtV").textContent = s ? showExpr(s) : "0";
   $("amtV").className="v num "+(s?(ed.type==="income"?"inc":"exp"):"");
-  $("amtEq").textContent = /[+\-]/.test(s) ? "= "+fmt(Math.max(0,evalExpr(s))) : "";
+  let eq="";
+  if(OPS.test(s)){ const v=evalExpr(s); eq = isNaN(v) ? "= 無法除以 0" : "= "+(v<0?"−":"")+fmt(Math.abs(Math.round(v*100)/100)); }
+  $("amtEq").textContent = eq;
 }
-const KEYS=["7","8","9","⌫","4","5","6","+","1","2","3","OK",".","0","−"];
+const KEYS=["7","8","9","÷","⌫","4","5","6","×","C","1","2","3","−","OK",".","0","=","+"];
 function paintKeys(){
   $("keys").innerHTML=KEYS.map(k=>{
     if(k==="OK") return '<button class="k ok '+(ed.type==="income"?"inc":"")+'" data-k="OK">'+(ed.id?"更新":"完成")+'</button>';
-    return '<button class="k'+(["⌫","+","−"].includes(k)?' op':'')+'" data-k="'+k+'">'+k+'</button>';
+    const cls = ["÷","×","−","+"].includes(k) ? " op" : (k==="⌫"||k==="C") ? " fn" : k==="=" ? " eq" : "";
+    return '<button class="k'+cls+'" data-k="'+k+'">'+k+'</button>';
   }).join("");
 }
 function press(k){
   let s=ed.expr;
-  const last=s.slice(-1), curNum=s.split(/[+\-]/).pop();
+  const last=s.slice(-1), curNum=s.split(OPS).pop();
+  const OPMAP={"+":"+","−":"-","×":"*","÷":"/"};
   if(k==="⌫"){ s=s.slice(0,-1); }
-  else if(k==="+"||k==="−"){ const op=k==="+"?"+":"-"; if(!s) return; if(/[+\-.]/.test(last)) s=s.slice(0,-1)+op; else s+=op; }
+  else if(k==="C"){ s=""; }
+  else if(OPMAP[k]){ const op=OPMAP[k]; if(!s) return; if(OPS.test(last)||last===".") s=s.slice(0,-1)+op; else s+=op; }
+  else if(k==="="){
+    if(!OPS.test(s)) return;
+    const v=evalExpr(s);
+    if(isNaN(v)){ toast("無法除以 0"); return; }
+    if(v<0){ toast("金額不能小於 0"); return; }
+    s=String(Math.round(v*100)/100);
+  }
   else if(k==="."){ if(curNum.includes(".")) return; s+=(curNum===""?"0.":"."); }
   else if(k==="OK"){ save(); return; }
   else {
@@ -787,8 +818,10 @@ $("shClose").onclick=closeSheet;
 let saving=false;
 async function save(){
   if(saving) return;
-  const amount=Math.round(evalExpr(ed.expr)*100)/100;
-  if(!(amount>0)){ toast("請輸入金額"); return; }
+  const raw=evalExpr(ed.expr);
+  if(isNaN(raw)){ toast("無法除以 0"); return; }
+  const amount=Math.round(raw*100)/100;
+  if(!(amount>0)){ toast(raw<0?"金額不能小於 0":"請輸入金額"); return; }
   const date=$("dateIn").value; if(!date){ toast("請選擇日期"); return; }
   const rec={id:ed.id||uid("r"),type:ed.type,amount,cat:ed.cat,date,note:$("noteIn").value.trim(),ts:ed.ts||Date.now()};
   if(ed.rec) rec.rec=ed.rec;

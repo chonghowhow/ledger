@@ -134,6 +134,8 @@ textarea.csv{width:100%;height:120px;margin-top:10px;border-radius:12px;border:1
 
 /* sheets */
 .mask{position:fixed;inset:0;touch-action:none;background:#0d0b0966;z-index:40;opacity:0;pointer-events:none;transition:opacity .25s}
+.mask{display:none}
+.mask.on{display:block}
 .mask.show{opacity:1;pointer-events:auto}
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:42;transform:translateY(105%);transition:transform .32s cubic-bezier(.2,.9,.3,1)}
 .sheet.show{transform:none}
@@ -580,7 +582,7 @@ const THEMES = {
   grape: {name:"葡萄",hero:"#5B4A8B",heroD:"#433668",fab:"#7A5FC0"}
 };
 const WEEK = ["日","一","二","三","四","五","六"];
-const APP_VERSION = "2026.11.14c";
+const APP_VERSION = "2026.11.14d";
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -1023,7 +1025,14 @@ function lockBody(on){
 }
 function updMask(){
   const any=["sheet","cal","panel"].some(id=>$(id).classList.contains("show"));
-  $("mask").classList.toggle("show",any);
+  const m=$("mask");
+  if(any){
+    if(!m.classList.contains("on")){ m.classList.add("on"); void m.offsetWidth; }
+    m.classList.add("show");
+  } else {
+    m.classList.remove("show");
+    clearTimeout(m._t); m._t=setTimeout(()=>{ if(!m.classList.contains("show")) m.classList.remove("on"); },280);
+  }
   lockBody(any);
 }
 function show(id){ $(id).classList.add("show"); updMask(); }

@@ -400,6 +400,12 @@ textarea.csv{width:100%;height:120px;margin-top:10px;border-radius:12px;border:1
 .coins[data-anim=hop] i:nth-child(3){animation-delay:-2.8s,-.4s,-.46s}
 @keyframes coinHop{0%,100%{top:10px}20%{top:3px}40%{top:0}60%{top:3px}80%{top:10px}}
 @media (prefers-reduced-motion:reduce){.coins i{animation:none!important;top:0!important}.coins i:nth-child(2){transform:translateX(var(--cs))}.coins i:nth-child(3){transform:translateX(calc(var(--cs)*2))}}
+
+/* 結餘依存下比例變色：只改數字顏色（透支紅／不到 1 成橘／1 成以上綠） */
+.btag{display:none}
+#balBox[data-lv=neg] b{color:#FF9C8A}
+#balBox[data-lv=low] b{color:#FFB060}
+#balBox[data-lv=ok] b,#balBox[data-lv=great] b{color:#8FF0A8}
 </style>
 </head>
 <body>
@@ -419,7 +425,7 @@ textarea.csv{width:100%;height:120px;margin-top:10px;border-radius:12px;border:1
     <div class="big num"><span class="cur">NT$</span><span id="sExp">0</span></div>
     <div class="row">
       <div><span class="lbl">收入</span><b class="num" id="sInc">0</b></div>
-      <div><span class="lbl">結餘</span><b class="num" id="sBal">0</b></div>
+      <div id="balBox"><span class="lbl">結餘 <span class="btag" id="balTag"></span></span><b class="num" id="sBal">0</b></div>
     </div>
     <div class="bud hide" id="bud">
       <div class="t"><span id="budL"></span><span id="budR"></span></div>
@@ -582,7 +588,7 @@ const THEMES = {
   grape: {name:"葡萄",hero:"#5B4A8B",heroD:"#433668",fab:"#7A5FC0"}
 };
 const WEEK = ["日","一","二","三","四","五","六"];
-const APP_VERSION = "2026.11.14d";
+const APP_VERSION = "2026.11.15";
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -876,6 +882,11 @@ function renderSummary(){
   $("sLbl").textContent=selDay?(selDay===ymd(new Date())?"今日支出":"當日支出"):"本月支出";
   $("sExp").textContent=fmt(t.e); $("sInc").textContent=fmt(t.i);
   const bal=t.i-t.e; $("sBal").textContent=(bal<0?"−":"")+fmt(Math.abs(bal));
+  // 結餘顏色：依「存下比例」= 結餘 ÷ 收入
+  let lv="", tag="";
+  if(bal<0){ lv="neg"; tag="透支"; }
+  else if(t.i>0){ const r=bal/t.i; if(r<0.1){ lv="low"; tag="打平"; } else if(r<0.3){ lv="ok"; tag="不錯"; } else { lv="great"; tag="★超讚"; } }
+  $("balBox").dataset.lv=lv; $("balTag").textContent=tag;
   const b=settings.budget||0, bud=$("bud");
   if(b>0 && !selDay){
     bud.classList.remove("hide");

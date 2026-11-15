@@ -2,7 +2,7 @@
 // - 有網路時：自動抓最新版（3 秒內沒回應就先用手機裡的版本）
 // - 沒網路時：用手機裡存好的版本
 // - 記帳資料存在 localStorage，更新程式不會動到資料
-const VERSION = "2026.11.15-2";
+const VERSION = "2026.11.15-3";
 const CACHE = "xiaozhangben-" + VERSION;
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./cubic11.woff2", "./icon-192-v3.png", "./icon-512-v3.png", "./icon-maskable-480-v3.png", "./apple-touch-icon-v3.png"];
 

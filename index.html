@@ -95,7 +95,8 @@ input,select{font:inherit;color:inherit}
 .donut{display:flex;align-items:center;gap:16px}
 .donut svg{flex:none}
 .legend{flex:1;min-width:0}
-.crow{display:flex;align-items:center;gap:10px;padding:8px 0}
+.crow{display:flex;align-items:center;gap:10px;padding:8px 0;width:100%;text-align:left}
+.crow:active{background:var(--chip)}
 .crow+.crow{border-top:1px dashed var(--line)}
 .crow .ico{width:32px;height:32px;font-size:16px;border-radius:10px}
 .crow .mid{flex:1;min-width:0}
@@ -588,7 +589,7 @@ const THEMES = {
   grape: {name:"葡萄",hero:"#5B4A8B",heroD:"#433668",fab:"#7A5FC0"}
 };
 const WEEK = ["日","一","二","三","四","五","六"];
-const APP_VERSION = "2026.11.15b";
+const APP_VERSION = "2026.11.15c";
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -876,6 +877,7 @@ function renderAll(){
   if(view==="stats") renderStats();
   if(view==="set") renderSet();
   if(panelMode==="search") renderSearch();
+  if(panelMode==="catd") renderCatDetail();
 }
 function renderSummary(){
   const t=totals(selDay?records.filter(r=>r.date===selDay):monthRecs(curY,curM));
@@ -957,7 +959,7 @@ function renderStats(){
     else { h='<div class="donut"><svg width="140" height="140" viewBox="0 0 140 140">'+segs+'<text x="70" y="64" text-anchor="middle" font-size="11" style="fill:var(--ink3)">'+(stType==="income"?"總收入":"總支出")+'</text><text x="70" y="84" text-anchor="middle" font-size="17" font-weight="500" style="fill:var(--ink);font-family:ui-monospace,Menlo,monospace">'+fmt(total)+'</text></svg><div class="legend">'; }
     arr.slice(0,3).forEach(a=>{ h+='<div style="font-size:13px;display:flex;align-items:center;gap:6px;margin:6px 0"><i style="width:9px;height:9px;border-radius:3px;flex:none;background:'+a.c.color+'"></i>'+esc(a.c.name)+'<span class="num" style="margin-left:auto;color:var(--ink2)">'+(a.v/total*100).toFixed(1)+'%</span></div>'; });
     h+='</div></div><div style="margin-top:10px">';
-    arr.forEach(a=>{ const p=a.v/total*100; h+='<div class="crow">'+icoHtml(a.c)+'<div class="mid"><div class="top2"><span>'+esc(a.c.name)+' <span class="pct">'+p.toFixed(1)+'%</span></span><span class="num">'+fmt(a.v)+'</span></div><div class="pb"><i style="width:'+p+'%;background:'+a.c.color+'"></i></div></div></div>'; });
+    arr.forEach(a=>{ const p=a.v/total*100; h+='<button class="crow" data-cat="'+esc(a.c.id)+'">'+icoHtml(a.c)+'<div class="mid"><div class="top2"><span>'+esc(a.c.name)+' <span class="pct">'+p.toFixed(1)+'%</span></span><span class="num">'+fmt(a.v)+'</span></div><div class="pb"><i style="width:'+p+'%;background:'+a.c.color+'"></i></div></div><span class="chev">'+G("r")+'</span></button>'; });
     el.innerHTML=h+'</div>';
   }
   const months=[]; for(let i=5;i>=0;i--){ const d=new Date(curY,curM-i,1); const t=totals(monthRecs(d.getFullYear(),d.getMonth())); months.push({m:d.getMonth()+1,e:t.e,i:t.i,cur:i===0}); }
@@ -1010,6 +1012,7 @@ function goView(v){
 document.querySelectorAll(".nav .tab").forEach(b=>b.addEventListener("click",()=>goView(b.dataset.v)));
 $("mPrev").onclick=()=>{ selDay=null; curM--; if(curM<0){curM=11;curY--;} renderAll(); };
 $("mNext").onclick=()=>{ selDay=null; curM++; if(curM>11){curM=0;curY++;} renderAll(); };
+$("donut").addEventListener("click",e=>{ const b=e.target.closest(".crow[data-cat]"); if(!b) return; openPanel("catd"); pState.cat=b.dataset.cat; pState.type=stType; pState.all=false; renderCatDetail(); });
 $("stSeg").addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b) return; stType=b.dataset.t; [...$("stSeg").children].forEach(x=>x.classList.toggle("on",x===b)); renderStats(); });
 $("vList").addEventListener("click",e=>{
   if(e.target.id==="allMonth"){ selDay=null; renderAll(); return; }
@@ -1266,6 +1269,31 @@ function refreshPanel(){
   if(panelMode==="search") renderSearchShell();
   else if(panelMode==="cats") renderCatsPanel();
   else if(panelMode==="rec") renderRecPanel();
+  else if(panelMode==="catd") renderCatDetail();
+}
+/* 分類明細：統計頁點分類進來 */
+function renderCatDetail(){
+  const st=pState; if(!st.cat) return;
+  const c=catOf(st.cat,st.type);
+  $("pTitle").innerHTML=emoHtml(c.emoji).replace('class="pxe"','class="pxe" style="width:24px;height:24px;display:inline-block;vertical-align:-5px"')+' '+esc(c.name);
+  const mk=mKey(curY,curM);
+  const list=records.filter(r=>r.cat===st.cat && r.type===st.type && (st.all || r.date.slice(0,7)===mk))
+    .sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts);
+  const tot=list.reduce((a,r)=>a+r.amount,0);
+  let h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px"><span class="seg" id="cdSeg"><button data-a="0" class="'+(st.all?"":"on")+'">'+curY+'/'+(curM+1)+'</button><button data-a="1" class="'+(st.all?"on":"")+'">所有月份</button></span></div>';
+  h+='<div class="sres-sum">共 '+list.length+' 筆 · '+(st.type==="income"?"收入":"支出")+' <b class="'+(st.type==="income"?"inc":"exp")+' num">'+fmt(tot)+'</b>'+(list.length?' · 平均 <span class="num">'+fmt(tot/list.length)+'</span>':'')+'</div>';
+  if(!list.length){ h+='<div class="empty" style="padding:40px 10px">沒有紀錄</div>'; $("pBody").innerHTML=h; return; }
+  if(st.all){
+    // 依月份分組並顯示每月小計
+    const g={}; list.forEach(r=>(g[r.date.slice(0,7)]=g[r.date.slice(0,7)]||[]).push(r));
+    Object.keys(g).sort().reverse().forEach(m=>{
+      const [y,mm]=m.split("-"); const sub=g[m].reduce((a,r)=>a+r.amount,0);
+      h+='<div class="day"><div class="dayh"><span>'+y+' 年 '+(+mm)+' 月</span><span class="num">'+fmt(sub)+'</span></div><div class="dayc">'+g[m].map(r=>itemHtml(r,true)).join("")+'</div></div>';
+    });
+  } else {
+    h+='<div class="dayc">'+list.map(r=>itemHtml(r,true)).join("")+'</div>';
+  }
+  $("pBody").innerHTML=h;
 }
 $("pClose").onclick=closePanel;
 
@@ -1297,7 +1325,8 @@ function renderSearch(){
 }
 $("srchBtn").onclick=()=>openPanel("search");
 $("pBody").addEventListener("click",e=>{
-  if(panelMode!=="search") return;
+  if(panelMode==="catd"){ const sg=e.target.closest("#cdSeg button"); if(sg){ pState.all=sg.dataset.a==="1"; renderCatDetail(); return; } }
+  if(panelMode!=="search" && panelMode!=="catd") return;
   const b=e.target.closest(".item"); if(!b) return; const r=records.find(x=>x.id===b.dataset.id); if(r) openSheet(r);
 });
 

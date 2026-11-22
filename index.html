@@ -541,7 +541,7 @@ textarea.csv{width:100%;height:120px;margin-top:10px;border-radius:12px;border:1
   </div>
   <div class="qn" id="qn"></div>
   <div class="keys" id="keys"></div>
-  <div class="delrow hide" id="delRow"><button id="delBtn">刪除這筆紀錄</button></div>
+  <div class="delrow hide" id="delRow"><button id="histBtn" class="hide" style="color:var(--ink2)">📜 修改紀錄</button><button id="delBtn">刪除這筆紀錄</button></div>
 </div></div>
 
 <!-- 日曆 -->
@@ -589,7 +589,7 @@ const THEMES = {
   grape: {name:"葡萄",hero:"#5B4A8B",heroD:"#433668",fab:"#7A5FC0"}
 };
 const WEEK = ["日","一","二","三","四","五","六"];
-const APP_VERSION = "2026.11.15c";
+const APP_VERSION = "2026.11.22";
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -751,6 +751,7 @@ const store = {
       if(this.readOnly) throw {code:"invalid_argument"};
       const body={type:rec.type,amount:rec.amount,cat:rec.cat,date:rec.date,note:rec.note||"",ts:rec.ts};
       if(rec.rec) body.rec=rec.rec;
+      if(rec.hist) body.hist=rec.hist;
       await withRetry(()=>this.recCol().doc(rec.id).set(body));
     } else {
       const i=records.findIndex(r=>r.id===rec.id);
@@ -815,7 +816,7 @@ async function init(){
   let freshRec=false, freshSet=false;
   const timer=setTimeout(()=>{ if(!freshRec) showBanner(records.length?"雲端資料暫時連不上，畫面可能不是最新的。":"雲端資料暫時連不上，請檢查網路。"); },10000);
   store.recCol().onSnapshot(snap=>{
-    records = snap.docs.filter(d=>d.exists).map(d=>{ const x=d.data(); return {id:d.id,type:x.type,amount:+x.amount||0,cat:x.cat,date:x.date,note:x.note||"",ts:x.ts||0,rec:x.rec||null}; });
+    records = snap.docs.filter(d=>d.exists).map(d=>{ const x=d.data(); return {id:d.id,type:x.type,amount:+x.amount||0,cat:x.cat,date:x.date,note:x.note||"",ts:x.ts||0,rec:x.rec||null,hist:Array.isArray(x.hist)?clone(x.hist):undefined}; });
     if(!snap.metadata.fromCache && !freshRec){ freshRec=true; clearTimeout(timer); showBanner(""); if(freshSet) runRecurring(); }
     renderAll(); renderStore();
   }, err=>{ clearTimeout(timer); showBanner(err&&err.code==="revoked"?"存取已中止。":"雲端資料載入失敗，請重新整理頁面。"); });
@@ -865,7 +866,7 @@ function itemHtml(r,showDate){
   const c=catOf(r.cat,r.type);
   let sub=[];
   if(showDate){ const d=new Date(r.date+"T00:00:00"); sub.push(d.getFullYear()+"/"+(d.getMonth()+1)+"/"+d.getDate()); }
-  return '<button class="item" data-id="'+esc(r.id)+'">'+icoHtml(c)+'<span class="mid"><div class="c"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">'+esc(r.note||c.name)+'</span>'+(r.rec?' <span class="tag">🔁 固定</span>':'')+'</div>'+(sub.length?'<div class="n">'+sub.join(" · ")+'</div>':'')+'</span><span class="a num '+(r.type==="income"?"inc":"exp")+'">'+(r.type==="income"?"+":"−")+fmt(r.amount)+'</span></button>';
+  return '<button class="item" data-id="'+esc(r.id)+'">'+icoHtml(c)+'<span class="mid"><div class="c"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">'+esc(r.note||c.name)+'</span>'+(r.rec?' <span class="tag">🔁 固定</span>':'')+(r.hist&&r.hist.length?' <span class="tag">✎ 已修改</span>':'')+'</div>'+(sub.length?'<div class="n">'+sub.join(" · ")+'</div>':'')+'</span><span class="a num '+(r.type==="income"?"inc":"exp")+'">'+(r.type==="income"?"+":"−")+fmt(r.amount)+'</span></button>';
 }
 
 /* ---------- render ---------- */
@@ -878,6 +879,7 @@ function renderAll(){
   if(view==="set") renderSet();
   if(panelMode==="search") renderSearch();
   if(panelMode==="catd") renderCatDetail();
+  if(panelMode==="hist") renderHist();
 }
 function renderSummary(){
   const t=totals(selDay?records.filter(r=>r.date===selDay):monthRecs(curY,curM));
@@ -1063,6 +1065,8 @@ function openSheet(rec){
            : {id:null,type:"expense",cat:first?first.id:"other",expr:"",date:selDay||(isCur?ymd(new Date()):mKey(curY,curM)+"-01"),note:""};
   $("noteIn").value=ed.note||""; $("dateIn").value=ed.date;
   $("delRow").classList.toggle("hide",!rec); disarm($("delBtn"));
+  const hn=rec&&Array.isArray(rec.hist)?rec.hist.length:0;
+  $("histBtn").classList.toggle("hide",!hn); $("histBtn").textContent="📜 修改紀錄（"+hn+"）";
   paintSheet(); show("sheet");
 }
 function closeSheet(){ hide("sheet"); ed=null; }
@@ -1174,6 +1178,15 @@ async function save(){
   const date=$("dateIn").value; if(!date){ toast("請選擇日期"); return; }
   const rec={id:ed.id||uid("r"),type:ed.type,amount,cat:ed.cat,date,note:$("noteIn").value.trim(),ts:ed.ts||Date.now()};
   if(ed.rec) rec.rec=ed.rec;
+  if(ed.id){
+    const old=records.find(r=>r.id===ed.id);
+    const hist=(old&&Array.isArray(old.hist))?old.hist.slice():[];
+    if(old && ["type","amount","cat","date","note"].some(k=>String(old[k]||"")!==String(rec[k]||""))){
+      hist.push({at:Date.now(),type:old.type,amount:old.amount,cat:old.cat,date:old.date,note:old.note||""});
+      while(hist.length>30) hist.shift();
+    }
+    if(hist.length) rec.hist=hist;
+  }
   const isNew=!ed.id, fromPanel=$("panel").classList.contains("show");
   saving=true;
   try{
@@ -1193,6 +1206,7 @@ async function save(){
 /* two-tap confirm */
 function arm(btn,label){ if(!btn.dataset.orig) btn.dataset.orig=btn.textContent; btn.classList.add("arm"); btn.dataset.armed="1"; btn.textContent=label; clearTimeout(btn._t); btn._t=setTimeout(()=>disarm(btn),3000); }
 function disarm(btn){ btn.classList.remove("arm"); btn.dataset.armed=""; if(btn.dataset.orig) btn.textContent=btn.dataset.orig; }
+$("histBtn").onclick=()=>{ if(!ed||!ed.id) return; const id=ed.id; closeSheet(); openPanel("hist"); pState.id=id; renderHist(); };
 $("delBtn").onclick=async()=>{
   const b=$("delBtn");
   if(!b.dataset.armed){ arm(b,"再按一次確認刪除"); return; }
@@ -1270,6 +1284,38 @@ function refreshPanel(){
   else if(panelMode==="cats") renderCatsPanel();
   else if(panelMode==="rec") renderRecPanel();
   else if(panelMode==="catd") renderCatDetail();
+  else if(panelMode==="hist") renderHist();
+}
+/* 修改紀錄 */
+function fmtTime(ts){ const d=new Date(ts); return d.getFullYear()+"/"+(d.getMonth()+1)+"/"+d.getDate()+" "+pad(d.getHours())+":"+pad(d.getMinutes()); }
+function fmtDate(s){ const [y,m,d]=String(s).split("-"); return (+m)+"/"+(+d); }
+function signAmt(diff,type){
+  if(!diff) return '<span class="num" style="color:var(--ink3)">±0</span>';
+  const up=diff>0, bad = type==="income" ? !up : up;
+  return '<b class="num" style="color:var('+(bad?"--exp":"--inc")+')">'+(up?"+":"−")+fmt(Math.abs(diff))+'</b>';
+}
+function renderHist(){
+  const r=records.find(x=>x.id===pState.id);
+  $("pTitle").textContent="修改紀錄";
+  if(!r){ $("pBody").innerHTML='<div class="empty">這筆紀錄已被刪除</div>'; return; }
+  const hist=Array.isArray(r.hist)?r.hist:[];
+  const vers=hist.map(h=>({type:h.type,amount:+h.amount,cat:h.cat,date:h.date,note:h.note||""})).concat([{type:r.type,amount:r.amount,cat:r.cat,date:r.date,note:r.note||""}]);
+  const first=vers[0], total=r.amount-first.amount;
+  let h='<div class="dayc" style="margin-bottom:12px">'+itemHtml(r,true)+'</div>';
+  h+='<div class="card" style="padding:12px 14px"><div class="hint" style="margin:0">共修改 '+hist.length+' 次</div><div style="margin-top:6px;font-size:15px">金額 <span class="num">'+fmt(first.amount)+'</span> → <span class="num">'+fmt(r.amount)+'</span>　'+signAmt(total,r.type)+'</div></div>';
+  h+='<div class="plist">';
+  for(let k=hist.length-1;k>=0;k--){
+    const a=vers[k], b=vers[k+1], lines=[];
+    if(a.amount!==b.amount) lines.push('金額 <span class="num">'+fmt(a.amount)+'</span> → <span class="num">'+fmt(b.amount)+'</span>　'+signAmt(b.amount-a.amount,b.type));
+    if(a.type!==b.type) lines.push('類型 '+(a.type==="income"?"收入":"支出")+' → '+(b.type==="income"?"收入":"支出"));
+    if(a.cat!==b.cat) lines.push('分類 '+esc(catOf(a.cat,a.type).name)+' → '+esc(catOf(b.cat,b.type).name));
+    if(a.date!==b.date) lines.push('日期 '+fmtDate(a.date)+' → '+fmtDate(b.date));
+    if(a.note!==b.note) lines.push('備註「'+esc(a.note||"（空白）")+'」→「'+esc(b.note||"（空白）")+'」');
+    h+='<div class="prow" style="display:block"><div class="hint" style="margin:0 0 4px">'+fmtTime(hist[k].at)+' 修改</div>'+lines.map(l=>'<div style="font-size:14px;line-height:1.7">'+l+'</div>').join("")+'</div>';
+  }
+  h+='<div class="prow" style="display:block"><div class="hint" style="margin:0 0 4px">'+(r.ts>1e12?fmtTime(r.ts):"")+' 原始紀錄</div><div style="font-size:14px;line-height:1.7"><span class="num">'+fmt(first.amount)+'</span> · '+esc(catOf(first.cat,first.type).name)+' · '+fmtDate(first.date)+(first.note?' · '+esc(first.note):'')+'</div></div>';
+  h+='</div>';
+  $("pBody").innerHTML=h;
 }
 /* 分類明細：統計頁點分類進來 */
 function renderCatDetail(){
@@ -1325,6 +1371,7 @@ function renderSearch(){
 }
 $("srchBtn").onclick=()=>openPanel("search");
 $("pBody").addEventListener("click",e=>{
+  if(panelMode==="hist"){ const it=e.target.closest(".item"); if(it){ const r=records.find(x=>x.id===it.dataset.id); if(r){ closePanel(); openSheet(r); } } return; }
   if(panelMode==="catd"){ const sg=e.target.closest("#cdSeg button"); if(sg){ pState.all=sg.dataset.a==="1"; renderCatDetail(); return; } }
   if(panelMode!=="search" && panelMode!=="catd") return;
   const b=e.target.closest(".item"); if(!b) return; const r=records.find(x=>x.id===b.dataset.id); if(r) openSheet(r);
@@ -1533,7 +1580,7 @@ async function restoreData(d){
   if(!Array.isArray(list)) throw 0;
   const fresh = !records.length && !settings.cats && !settings.recurring.length && !settings.budget;
   const have=new Set(records.map(r=>r.id)); let n=0;
-  const clean=list.filter(r=>r&&r.id&&r.date&&+r.amount>0&&(r.type==="income"||r.type==="expense")).map(r=>({id:String(r.id),type:r.type,amount:+r.amount,cat:String(r.cat||"other"),date:String(r.date),note:String(r.note||""),ts:+r.ts||0,rec:r.rec||null}));
+  const clean=list.filter(r=>r&&r.id&&r.date&&+r.amount>0&&(r.type==="income"||r.type==="expense")).map(r=>({id:String(r.id),type:r.type,amount:+r.amount,cat:String(r.cat||"other"),date:String(r.date),note:String(r.note||""),ts:+r.ts||0,rec:r.rec||null,hist:Array.isArray(r.hist)?r.hist:undefined}));
   const bs=d.settings?normSettings(d.settings):null;
   if(bs){
     if(fresh){ settings=bs; }
